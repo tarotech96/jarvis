@@ -1,0 +1,4 @@
+Vì tôi muốn quản lý những thông tin, lịch trình trên các tools như  gmail, calendar, slack, jira v.v ... trong quá trình làm việc của 1 software engineer nên ở trên màn hình tôi muốn 
+có button hay gì đó để có thể connect tới các tool đó. Vì vậy bạn hãy cải thiện lại cho tôi, sau khi connect thành công thì AI có thể đọc được những thông tin từ đó ví dụ tôi hỏi hôm nay có lịch trình gì không, có mail mới nào không, có mail nào chưa đọc không hay có task nào tôi chưa làm/ đang làm/ tiến độ như nào không ... thì AI sẽ trả lời giúp tôi được
+
+Thêm nữa tối muốn refactor source code thành monorepo build bằng turbo chẳng hạn:  backend Python với Docker , frontend NextJs với taiwindCSS để dễ dàng build và deploy. Nếu có thể bạn hãy refactor lại giúp tôi. Về phần icon nếu dùng được lucide-react icons thì dùng nhé.

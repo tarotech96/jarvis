@@ -1,0 +1,25 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalEnv": [
+    "JARVIS_*",
+    "ANTHROPIC_*",
+    "ELEVENLABS_*",
+    "GOOGLE_*",
+    "SLACK_*",
+    "JIRA_*",
+    "GMAIL_QUERY"
+  ],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "outputs": []
+    },
+    "check": {
+      "outputs": []
+    }
+  }
+}

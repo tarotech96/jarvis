@@ -1,0 +1,11 @@
+{
+  "name": "@jarvis/api",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Python standard library only - no pip install, no virtualenv.",
+  "scripts": {
+    "dev": "python3 agent/main.py",
+    "build": "python3 -m compileall -q agent",
+    "check": "python3 -m compileall -q agent"
+  }
+}

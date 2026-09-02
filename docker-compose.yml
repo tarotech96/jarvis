@@ -1,0 +1,20 @@
+services:
+  jarvis:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      # Loopback only: publishing this on 0.0.0.0 would put Taro's mail,
+      # calendar and files on the local network.
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Inside the container the vault lives at /works, wherever it is on
+      # the host - which is the whole point of JARVIS_WORKS_DIR.
+      JARVIS_WORKS_DIR: /works
+    volumes:
+      - ${JARVIS_HOST_WORKS:-${HOME}/Documents/Works}:/works:ro
+      - ./memory:/app/memory
+      - ./.tokens:/app/.tokens
+    restart: unless-stopped

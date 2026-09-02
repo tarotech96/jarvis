@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JARVIS</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<canvas id="graph-canvas"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<div id="status-banner" class="status-banner" hidden></div>
+
+<!-- brand ------------------------------------------------------------ -->
+<div class="brand">
+  <span class="brand-dot" id="brand-dot"></span>
+  <span class="brand-name">JARVIS</span>
+</div>
+
+<!-- view controls ----------------------------------------------------- -->
+<div class="viewbar">
+  <button id="btn-fit" class="chip-btn" title="Fit the whole graph on screen">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+    Fit
+  </button>
+  <button id="btn-labels" class="chip-btn is-on" title="Show or hide node labels">Aa</button>
+  <button id="btn-contrast" class="chip-btn" title="Dim or brighten the links">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 18a6 6 0 0 0 0-12v12z" fill="currentColor"/></svg>
+  </button>
+  <button id="btn-sources" class="chip-btn" title="Choose which folders JARVIS reads">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+    Sources
+  </button>
+  <button id="btn-connectors" class="chip-btn" title="Connect Gmail, Calendar, Slack, Jira">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+    Connectors
+  </button>
+</div>
+
+<!-- connectors --------------------------------------------------------- -->
+<div id="connectors-panel" class="sources-panel" hidden>
+  <div class="card-label">Connectors</div>
+  <div class="connector-list" id="connector-list"></div>
+  <div class="sources-actions">
+    <span class="sources-note" id="connectors-note"></span>
+  </div>
+</div>
+
+<!-- folder picker ------------------------------------------------------ -->
+<div id="sources-panel" class="sources-panel" hidden>
+  <div class="card-label">Sources</div>
+  <div class="sources-machine" id="sources-machine"></div>
+  <div class="sources-list" id="sources-list"></div>
+  <div class="sources-actions">
+    <span class="sources-note" id="sources-note"></span>
+    <button id="btn-sources-apply" class="text-btn">Apply</button>
+  </div>
+</div>
+
+<!-- LEFT: inspector + top hubs ---------------------------------------- -->
+<aside class="rail rail-left">
+  <section class="card" id="inspector">
+    <div class="card-label">File</div>
+    <div class="inspector-empty">
+      Click a node to focus it — only that node and its connections light up,
+      and you can read its note here. Shift-click a second node to trace the
+      path between them.
+    </div>
+  </section>
+
+  <section class="card" id="hubs">
+    <div class="card-label">Most connected</div>
+    <ol id="hubs-list" class="hubs-list"></ol>
+  </section>
+
+</aside>
+
+<!-- RIGHT: filters + reactor ------------------------------------------ -->
+<aside class="rail rail-right">
+  <section class="card" id="filters">
+    <div class="card-label" id="filters-label">Projects</div>
+    <div id="filters-list" class="filters-list"></div>
+  </section>
+
+  <section class="reactor-block">
+    <div class="reactor" id="reactor" data-state="off">
+      <svg class="hud" viewBox="0 0 220 220" aria-hidden="true">
+        <g id="hud-ticks" class="hud-ticks"></g>
+        <circle class="hud-ring hud-ring-outer" cx="110" cy="110" r="72" />
+        <circle class="hud-ring hud-ring-inner" cx="110" cy="110" r="46" />
+        <circle class="hud-sweep" id="hud-sweep" cx="110" cy="110" r="86" />
+        <circle class="hud-level" id="hud-level" cx="110" cy="110" r="58" />
+      </svg>
+      <div class="hud-core"></div>
+      <div class="hud-wordmark">J.A.R.V.I.S.</div>
+    </div>
+
+    <div class="reactor-status">
+      <span class="live-dot" id="live-dot"></span>
+      <span id="reactor-state-label">offline</span>
+    </div>
+    <div class="reactor-hint" id="reactor-hint">click the mic once to go hands-free</div>
+    <div class="reactor-chip" id="model-chip">keyword mode</div>
+  </section>
+</aside>
+
+<!-- BOTTOM: conversation + ask bar ------------------------------------ -->
+<div class="dock">
+  <div id="live-pill" class="live-pill" hidden>
+    <span id="live-pill-text">Listening…</span>
+    <span class="live-dot"></span>
+  </div>
+
+  <div class="dock-panel">
+    <div id="transcript" class="transcript" hidden></div>
+
+    <div class="ask-row">
+      <span class="ask-tag">Ask</span>
+      <input id="ask-input" class="ask-input" type="text"
+             placeholder="say it out loud, or type here…" autocomplete="off" />
+
+      <button id="btn-mic" class="round-btn round-btn-mic" title="Hands-free listening (Space)"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>
+      </button>
+      <button id="btn-mute" class="round-btn" title="Mute JARVIS's voice"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>
+      </button>
+      <button id="btn-brief" class="round-btn" title="Brief me"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>
+      </button>
+      <button id="btn-plan" class="round-btn" title="Plan my day"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4"/></svg>
+      </button>
+      <button id="btn-memory" class="round-btn" title="Remember something"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+      </button>
+    </div>
+
+    <div class="ask-meta">
+      <span id="ask-example" class="ask-example"></span>
+      <span id="ask-caption" class="ask-caption"></span>
+    </div>
+  </div>
+</div>
+
+<!-- <div class="footnote">JARVIS · built with Claude Code</div> -->
+
+<script src="/markdown.js"></script>
+<script src="/graph.js"></script>
+<script src="/voice.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

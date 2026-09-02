@@ -1,0 +1,11 @@
+{
+  "name": "@jarvis/web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static UI. No bundler: the API serves public/ directly.",
+  "scripts": {
+    "dev": "node scripts/check.mjs --watch-note",
+    "build": "node scripts/check.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}

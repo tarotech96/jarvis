@@ -1,0 +1,5 @@
+- Đây là hệ thống Jarvis AI để quản lý workspace để quản lý data trên máy tính của tôi và  gmail, calendar, slack  tôi cũng đã connect tới google api của tôi rồi nhưng thông tin trả về đã sơ sài và không đúng trọng tâm câu hỏi tôi muốn cải thiện. Ví dụ tôi muốn xem lịch trình trên calendar hôm nay có những cuộc họp nào thì kết quả đang chưa ra đúng và thấy hơi lan man sai. Tương tự với mail cũng vậy tôi chỉ muốn xem các mail ở tab Main chứ không muốn xem những mail quảng cáo hay spam. Và khi hỏi về thông tin nào đó của 1 dự án cũng đang không thấy trả về chính xác. Bạn hãy xem và update giúp tôi 
+
+- Thêm nữa tôi muốn phần data cá nhân sẽ tự động switch khi mở ở trên các máy khác nhau Trường hợp máy Mac thì sẽ lấy toàn bộ data ở folder  Documents/Works  còn ở máy windows thì sẽ lấy toàn bộ data ở folder Works ở ổ D. Hãy cải tiến lại giúp tôi nếu tự động switch được thì càng tốt. Trường hợp nếu không tự động được thì trên màn hình phải có chỗ chỉ định folder nhé 
+
+- Tôi lại muốn quay lại với tên Jarvis nên đổi lại giúp tôi 

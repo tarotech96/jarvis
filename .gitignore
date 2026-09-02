@@ -1,0 +1,12 @@
+.env
+!.env.example
+.tokens/
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.turbo/
+.yarn/*
+!.yarn/patches
+.pnp.*
+.DS_Store
