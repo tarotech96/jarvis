@@ -276,6 +276,39 @@ def _best_matching_notes(query: str, limit: int = 3):
 # instead of reaching the model.
 _AUTO_SEARCH_MIN_SCORE = 4
 
+# "Ba email gần nhất" means three. The tools used to ignore the number
+# entirely and return a fixed ten, which is most of why the answers read as
+# not listening to the question.
+_VN_NUMBERS = {
+    "một": 1, "mot": 1, "hai": 2, "ba": 3, "bốn": 4, "bon": 4, "năm": 5,
+    "nam": 5, "sáu": 6, "sau": 6, "bảy": 7, "bay": 7, "tám": 8, "tam": 8,
+    "chín": 9, "chin": 9, "mười": 10, "muoi": 10,
+}
+_EN_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_DIGIT_COUNT_RE = re.compile(r"\b(\d{1,2})\b")
+_DEFAULT_LIMIT = 10
+_MAX_LIMIT = 25
+
+
+def _requested_count(message: str, default: int = _DEFAULT_LIMIT) -> int:
+    """How many items were asked for, or the default when unstated."""
+    low = message.lower()
+    m = _DIGIT_COUNT_RE.search(low)
+    if m:
+        n = int(m.group(1))
+        if 1 <= n <= _MAX_LIMIT:
+            return n
+    for word, n in list(_VN_NUMBERS.items()) + list(_EN_NUMBERS.items()):
+        if re.search(rf"\b{word}\b", low):
+            return n
+    if re.search(r"\bvài\b|\bvai\b|\ba few\b|\bmột số\b", low):
+        return 3
+    return default
+
+
 
 # How much of a note's title a fragment has to account for before we call
 # it that note. Any-overlap-wins was flagging "Updates to YouTube Data API"
@@ -425,9 +458,9 @@ def research_web(query: str) -> dict:
     }
 
 
-def read_inbox(when: str | None = None) -> dict:
+def read_inbox(when: str | None = None, limit: int = _DEFAULT_LIMIT) -> dict:
     try:
-        inbox = data.get_inbox(when)
+        inbox = data.get_inbox(when, limit)
     except integrations.IntegrationError as e:
         return {"speech": f"Couldn't reach Gmail - {e}", "card": None}
     if inbox is None:
@@ -450,10 +483,8 @@ def read_inbox(when: str | None = None) -> dict:
         return {"speech": f"Nothing unread {scope}.",
                 "card": {"kind": "inbox", "items": []}}
     lead = items[0]
-    speech = f"{len(items)} unread in Primary. Top: {lead['subject']} from {lead['from']}."
-    tracked = sum(1 for i in items if i["already_tracked"])
-    if tracked:
-        speech += f" {tracked} already have a note."
+    speech = (f"{len(items)}: {lead['subject']} from {lead['from']}"
+              + (f", and {len(items) - 1} more." if len(items) > 1 else "."))
     return {"speech": speech, "card": {"kind": "inbox", "items": items}}
 
 
@@ -584,7 +615,8 @@ def plan_day() -> dict:
 _CATEGORY_LABEL = {"new": "to do", "indeterminate": "in progress", "done": "done"}
 
 
-def read_tasks(done: bool = False) -> dict:
+
+def read_tasks(done: bool = False, limit: int = _DEFAULT_LIMIT) -> dict:
     """
     What's assigned to Taro right now, split by where it actually is.
 
@@ -593,7 +625,8 @@ def read_tasks(done: bool = False) -> dict:
     twenty issue keys would be useless.
     """
     try:
-        items = data.get_done_tasks() if done else data.get_tasks()
+        items = (data.get_done_tasks(limit=limit) if done
+                  else data.get_tasks(limit=limit))
     except integrations.IntegrationError as e:
         return {"speech": f"Couldn't reach Jira - {e}", "card": None}
     if items is None:
@@ -622,6 +655,108 @@ def read_tasks(done: bool = False) -> dict:
     speech = f"{len(items)} open" + (" - " + ", ".join(parts) if parts else "") \
         + f". Current: {lead['title']}."
     return {"speech": speech, "card": {"kind": "tasks", "items": items}}
+
+
+# "Show me three emails" and "what did Apple send" are the same fetch and
+# two different answers. The fetch stays deterministic - JARVIS never
+# invents a message - but the wording comes from the model, given the
+# actual rows. A fixed template can only ever answer the question it was
+# written for, which is why "three most recent" came back as ten unread.
+_WORK_DETAIL_RE = re.compile(
+    r"nội dung|noi dung|\bđọc\b|\bdoc\b|chi tiết|chi tiet|toàn văn|"
+    r"\bcontent\b|\bbody\b|\bfull\b|\bread (me |it |that |this )|"
+    r"\bopen (the |that )?(email|mail|message)",
+    re.IGNORECASE,
+)
+_ORDINAL_RE = re.compile(
+    r"\b(đầu tiên|dau tien|first|thứ nhất|thu nhat)\b|"
+    r"\b(thứ|thu|number|no\.?)\s*(\d{1,2})\b|\b(cuối|cuoi|last)\b",
+    re.IGNORECASE,
+)
+
+
+def _answer_from_rows(message: str, history: list, rows: list,
+                       label: str, card: dict, tool: str) -> dict:
+    """
+    Let the model phrase an answer over rows JARVIS actually fetched.
+
+    The rows are the only source; the model is told so explicitly. Without
+    a model this is never reached - the deterministic summary stands in.
+    """
+    lines = []
+    for i, row in enumerate(rows, 1):
+        parts = [f"{k}: {v}" for k, v in row.items()
+                  if k not in ("id", "topic_hint", "already_tracked", "existing_note")
+                  and v not in (None, "", [])]
+        lines.append(f"{i}. " + " | ".join(str(p) for p in parts))
+
+    context = (
+        f"## {label}\n\n"
+        "These rows were just fetched from the live account. Answer the "
+        "question from them and nothing else - do not invent a message, a "
+        "task, a sender or a date. If the answer isn't in these rows, say "
+        "so. Give exactly what was asked for: if a number was asked for, "
+        "return that many; if one item was asked about, answer about that "
+        "one and don't list the rest.\n\n" + "\n".join(lines)
+    )
+    raw, sources, err = _call_anthropic(message, history, context)
+    if err:
+        return None            # caller falls back to the fixed summary
+    speech, detail = _split_reply(raw)
+    if detail:
+        card = {**card, "detail": detail}
+    return {"speech": speech, "card": card, "tool": tool}
+
+
+def read_email(message: str) -> dict:
+    """
+    One message, with its body - "read me that email".
+
+    Picked from the recent list by subject match or by position, because
+    that is how people refer to a mail they can see on screen. Never
+    guesses when nothing matches.
+    """
+    try:
+        inbox = data.get_inbox(None, 10)
+    except integrations.IntegrationError as e:
+        return {"speech": f"Couldn't reach Gmail - {e}", "card": None}
+    if not inbox:
+        return {"speech": "No mail is connected, or nothing is unread.", "card": None}
+
+    pick = None
+    m = _ORDINAL_RE.search(message)
+    if m:
+        if m.group(1):
+            pick = inbox[0]
+        elif m.group(3):
+            idx = int(m.group(3)) - 1
+            pick = inbox[idx] if 0 <= idx < len(inbox) else None
+        elif m.group(4):
+            pick = inbox[-1]
+    if pick is None:
+        q_tokens = set(_tokens(message))
+        best, best_score = None, 0
+        for item in inbox:
+            overlap = len(q_tokens & set(_tokens(item["subject"] + " " + item["from"])))
+            if overlap > best_score:
+                best, best_score = item, overlap
+        pick = best if best_score >= 1 else None
+    if pick is None:
+        pick = inbox[0]
+
+    try:
+        full = integrations.gmail_message(pick["id"])
+    except integrations.IntegrationError as e:
+        return {"speech": f"Couldn't open that message - {e}", "card": None}
+
+    card = {"kind": "email", **full}
+    if ANTHROPIC_API_KEY:
+        answered = _answer_from_rows(
+            message, [], [full], "The email that was asked about", card, "read_email")
+        if answered:
+            return answered
+    return {"speech": f"{full['subject']} - from {full['from']}, {full['date']}.",
+            "card": card}
 
 
 def remember(fact: str) -> dict:
@@ -847,16 +982,124 @@ def _vault_context(message: str):
     return "\n\n".join(sections), notes, code_files
 
 
-def _call_anthropic(message: str, history: list,
-                     context: str = "") -> tuple[str | None, str | None]:
+# Claude's server-side web search. The model decides when to reach for it;
+# results and citations come back in the same response, so there's no tool
+# loop to run here.
+#
+# The tool type is model-gated: the 2026 variant needs Opus 4.6+ / Sonnet
+# 4.6+, and older models only accept the 2025 one. Getting this wrong is a
+# 400, so it's derived from the configured model rather than assumed.
+WEB_SEARCH_MODERN = "web_search_20260209"
+WEB_SEARCH_BASIC = "web_search_20250305"
+_MODERN_SEARCH_MODELS = ("opus-5", "opus-4-8", "opus-4-7", "opus-4-6",
+                         "sonnet-5", "sonnet-4-6", "fable-5", "mythos-5")
+
+# Each search is billed. Capped so one question can't run away, and
+# switchable off entirely for anyone who doesn't want the API reaching out.
+WEB_SEARCH_MAX_USES = int(env.get("JARVIS_WEB_SEARCH_MAX", "5") or "5")
+WEB_SEARCH_ENABLED = (env.get("JARVIS_WEB_SEARCH", "1") or "1") != "0"
+
+# Optional. The prompt is written for whoever is running this copy, so an
+# instance can be told whose it is - and when it isn't, JARVIS is told
+# plainly that it doesn't know, rather than being left to infer a name
+# from whatever happens to be in the files.
+USER_NAME = (env.get("JARVIS_USER_NAME") or "").strip()
+
+ANTHROPIC_MAX_TOKENS = 1500
+_PAUSE_TURN_LIMIT = 3
+
+
+def _system_prompt(context: str = "") -> str:
+    """The behaviour contract, plus who this copy belongs to, plus context."""
+    parts = [_SYSTEM_PROMPT]
+    if USER_NAME:
+        parts.append(f"The person you work for is {USER_NAME}. "
+                      f"Address them by name when it reads naturally.")
+    if context:
+        parts.append(context)
+    return "\n\n".join(parts)
+
+
+def _web_search_tool() -> dict | None:
+    if not WEB_SEARCH_ENABLED or WEB_SEARCH_MAX_USES <= 0:
+        return None
+    model = (ANTHROPIC_MODEL or "").lower()
+    tool_type = (WEB_SEARCH_MODERN
+                 if any(tag in model for tag in _MODERN_SEARCH_MODELS)
+                 else WEB_SEARCH_BASIC)
+    return {"type": tool_type, "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}
+
+
+def _collect_sources(content: list) -> list:
     """
-    One call to the Claude Messages API. Returns (speech, error) - exactly
-    one is truthy. Never raises; every failure mode (network, auth, bad
-    response shape) comes back as a plain-language error string so the
-    caller can degrade loudly instead of guessing at an answer.
+    Where an answer came from on the web, deduped, in the order cited.
+
+    Both halves matter: web_search_tool_result lists what the search
+    returned, and a text block's citations say which of those the model
+    actually used. Reporting the citations means the sources shown are the
+    ones behind the words, not everything the search happened to find.
+    """
+    seen, sources = set(), []
+
+    def add(url, title):
+        if url and url not in seen:
+            seen.add(url)
+            sources.append({"url": url, "title": title or url})
+
+    for block in content:
+        if block.get("type") == "text":
+            for cite in block.get("citations") or []:
+                add(cite.get("url"), cite.get("title"))
+    for block in content:
+        if block.get("type") != "web_search_tool_result":
+            continue
+        results = block.get("content")
+        # An error comes back as an object here, not a list - branch before
+        # indexing or this raises on the failure path.
+        if not isinstance(results, list):
+            continue
+        for r in results:
+            add(r.get("url"), r.get("title"))
+    return sources
+
+
+def _post_anthropic(body: dict) -> tuple[dict | None, str | None]:
+    req = urllib.request.Request(
+        ANTHROPIC_API_URL, data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.loads(resp.read().decode("utf-8")), None
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            detail = None
+        return None, f"Claude API error ({e.code}): {detail or 'request failed'}"
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return None, f"couldn't reach the Claude API: {e}"
+    except (json.JSONDecodeError, ValueError) as e:
+        return None, f"unexpected response from the Claude API: {e}"
+
+
+def _call_anthropic(message: str, history: list,
+                     context: str = "") -> tuple[str | None, list, str | None]:
+    """
+    One turn with Claude, with web search available. Returns
+    (text, sources, error) - error is set only when nothing usable came back.
+
+    Raw HTTP rather than the anthropic SDK on purpose: the whole backend is
+    Python standard library, which is what lets someone run this with no
+    pip install at all. Adding the SDK would trade that for nothing this
+    endpoint needs.
     """
     if not ANTHROPIC_API_KEY:
-        return None, "no API key configured"
+        return None, [], "no API key configured"
 
     messages = []
     for turn in history[-10:]:
@@ -866,42 +1109,35 @@ def _call_anthropic(message: str, history: list,
             messages.append({"role": "assistant", "content": turn["speech"]})
     messages.append({"role": "user", "content": message})
 
-    body = json.dumps({
+    body = {
         "model": ANTHROPIC_MODEL,
-        # Summarising a project doc needs more room than a one-line reply.
-        "max_tokens": 800,
-        "system": _SYSTEM_PROMPT + ("\n\n" + context if context else ""),
+        "max_tokens": ANTHROPIC_MAX_TOKENS,
+        "system": _system_prompt(context),
         "messages": messages,
-    }).encode("utf-8")
+    }
+    tool = _web_search_tool()
+    if tool:
+        body["tools"] = [tool]
 
-    req = urllib.request.Request(
-        ANTHROPIC_API_URL, data=body, method="POST",
-        headers={
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": ANTHROPIC_VERSION,
-            "content-type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        text = "".join(
-            block.get("text", "") for block in payload.get("content", [])
-            if block.get("type") == "text"
-        ).strip()
-        if not text:
-            return None, "model returned no text"
-        return text, None
-    except urllib.error.HTTPError as e:
-        try:
-            detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message")
-        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-            detail = None
-        return None, f"Claude API error ({e.code}): {detail or 'request failed'}"
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        return None, f"couldn't reach the Claude API: {e}"
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        return None, f"unexpected response from the Claude API: {e}"
+    content: list = []
+    for _ in range(_PAUSE_TURN_LIMIT):
+        payload, err = _post_anthropic(body)
+        if err:
+            return None, [], err
+        content += payload.get("content", []) or []
+        # A long server-tool turn can come back paused; hand its own output
+        # back to it to continue, rather than reporting a truncated answer.
+        if payload.get("stop_reason") != "pause_turn":
+            break
+        body["messages"] = messages + [
+            {"role": "assistant", "content": payload.get("content", [])}
+        ]
+
+    text = "".join(b.get("text", "") for b in content
+                   if b.get("type") == "text").strip()
+    if not text:
+        return None, [], "model returned no text"
+    return text, _collect_sources(content), None
 
 
 _ANSWER_RE = re.compile(r"<answer>(.*?)</answer>", re.DOTALL | re.IGNORECASE)
@@ -964,7 +1200,7 @@ def _conversation_reply(message: str, history: list) -> dict:
 
     if ANTHROPIC_API_KEY:
         context, notes, code_files = _vault_context(message)
-        raw, err = _call_anthropic(message, history, context)
+        raw, web_sources, err = _call_anthropic(message, history, context)
         if err:
             return {"speech": f"Couldn't reach Claude for that - {err}",
                     "card": {"kind": "model_error", "detail": err}, "tool": None}
@@ -977,16 +1213,19 @@ def _conversation_reply(message: str, history: list) -> dict:
             {"id": n.id, "title": n.title, "path": str(n.path), "type": n.type}
             for n in notes
         ]
+        # Web sources are listed - unlike files, a URL isn't something the
+        # reader can go and check unless it's on screen.
         card = None
-        if detail or results:
-            card = {"kind": "answer", "query": message,
-                    "detail": detail, "results": results}
+        if detail or results or web_sources:
+            card = {"kind": "answer", "query": message, "detail": detail,
+                    "results": results, "sources": web_sources}
         # Tag the turn whenever Taro's own files fed it - including when
         # only source files did, which leaves `results` empty because there
         # is no note node for the graph to highlight.
         grounded = bool(notes or code_files)
-        return {"speech": speech, "card": card,
-                "tool": "vault_context" if grounded else None}
+        tool = ("web_search" if web_sources
+                else "vault_context" if grounded else None)
+        return {"speech": speech, "card": card, "tool": tool}
 
     return {
         "speech": "No model configured for that - I can search your notes, "
@@ -1015,21 +1254,52 @@ def handle_chat(message: str, history: list) -> dict:
 
     if _CALENDAR_RE.search(message):
         result = read_calendar(_when_from(message))
+        rows = (result.get("card") or {}).get("items") or []
+        if ANTHROPIC_API_KEY and rows:
+            answered = _answer_from_rows(message, history, rows,
+                                          "Calendar events in the range asked about",
+                                          result["card"], "read_calendar")
+            if answered:
+                return answered
         return {**result, "tool": "read_calendar"}
 
     if _SLACK_RE.search(message):
         result = read_slack()
+        rows = (result.get("card") or {}).get("items") or []
+        if ANTHROPIC_API_KEY and rows:
+            answered = _answer_from_rows(message, history, rows,
+                                          "Slack messages since the last check",
+                                          result["card"], "read_slack")
+            if answered:
+                return answered
         return {**result, "tool": "read_slack"}
 
     # "Đã làm xong việc gì" is a task question without any of the task
     # nouns in it, so the done-phrasing opens the door on its own.
     if _TASK_RE.search(message) or _TASK_DONE_RE.search(message):
-        result = read_tasks(done=bool(_TASK_DONE_RE.search(message)))
+        result = read_tasks(done=bool(_TASK_DONE_RE.search(message)),
+                             limit=_requested_count(message))
+        rows = (result.get("card") or {}).get("items") or []
+        if ANTHROPIC_API_KEY and rows:
+            answered = _answer_from_rows(message, history, rows,
+                                          "Jira issues assigned to you",
+                                          result["card"], "read_tasks")
+            if answered:
+                return answered
         return {**result, "tool": "read_tasks"}
 
     if _INBOX_RE.search(message):
+        if _WORK_DETAIL_RE.search(message):
+            return {**read_email(message), "tool": "read_email"}
         when = "today" if _TODAY_RE.search(message) else None
-        result = read_inbox(when)
+        result = read_inbox(when, _requested_count(message))
+        rows = (result.get("card") or {}).get("items") or []
+        if ANTHROPIC_API_KEY and rows:
+            answered = _answer_from_rows(message, history, rows,
+                                          "Unread mail, newest first",
+                                          result["card"], "read_inbox")
+            if answered:
+                return answered
         return {**result, "tool": "read_inbox"}
 
     m = _CONNECT_RE.search(message)
@@ -1038,11 +1308,9 @@ def handle_chat(message: str, history: list) -> dict:
         return {**result, "tool": "graph_connection"}
 
     m = _RESEARCH_RE.match(message)
-    if m:
-        # "What is X" is both how you ask the web and how you ask about your
-        # own work. Taro's vault gets first refusal: if his notes match the
-        # subject strongly (same bar the default path uses), answer from them
-        # and don't go out to the internet for something he already wrote.
+    if m and not ANTHROPIC_API_KEY:
+        # No model: a canned encyclopedia abstract is the best that can be
+        # done, and it's still better than nothing.
         subject = m.group(2)
         top = _scored_matches(subject, limit=1)
         if top and top[0][0] >= _AUTO_SEARCH_MIN_SCORE:
@@ -1050,11 +1318,6 @@ def handle_chat(message: str, history: list) -> dict:
             return {**result, "tool": "search_brain"}
         result = research_web(subject)
         return {**result, "tool": "research_web"}
-
-    if _GREETING_RE.search(message.lower()) or _SMALLTALK_RE.search(message.lower()) \
-            or _FOLLOWUP_RE.match(message.lower()):
-        result = _conversation_reply(message, history)
-        return result
 
     if _SEARCH_RE.search(message):
         result = search_brain(message)

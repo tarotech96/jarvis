@@ -153,7 +153,7 @@ def _day_window(when: str):
     return now, None          # "upcoming": from now, open-ended
 
 
-def get_inbox(when: str | None = None) -> list[dict] | None:
+def get_inbox(when: str | None = None, limit: int = 10) -> list[dict] | None:
     """
     Unread mail from Gmail's Primary tab, or None if Google isn't connected.
     """
@@ -164,7 +164,7 @@ def get_inbox(when: str | None = None) -> list[dict] | None:
     query = env.get("GMAIL_QUERY", "is:unread category:primary -in:spam -in:trash")
     if when == "today":
         query += " newer_than:1d"
-    return integrations.gmail_unread(query=query)
+    return integrations.gmail_unread(max_results=limit, query=query)
 
 
 def get_calendar(when: str = "upcoming") -> list[dict] | None:
@@ -188,15 +188,15 @@ def get_slack() -> list[dict] | None:
     return integrations.slack_recent_messages()
 
 
-def get_tasks() -> list[dict] | None:
-    """Open work assigned to Taro, from Jira."""
+def get_tasks(limit: int = 50) -> list[dict] | None:
+    """Open work assigned to whoever this copy belongs to, from Jira."""
     if not integrations.jira_configured():
         return None
-    return integrations.jira_my_work()
+    return integrations.jira_my_work(max_results=limit)
 
 
-def get_done_tasks(days: int = 7) -> list[dict] | None:
+def get_done_tasks(days: int = 7, limit: int = 20) -> list[dict] | None:
     """Recently finished work, for "what did I get through this week"."""
     if not integrations.jira_configured():
         return None
-    return integrations.jira_recently_done(days)
+    return integrations.jira_recently_done(days, max_results=limit)

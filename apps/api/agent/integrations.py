@@ -29,6 +29,7 @@ import sys
 import time
 import datetime
 import pathlib
+import re
 import email.header
 import email.utils
 import urllib.error
@@ -349,6 +350,7 @@ def gmail_unread(max_results: int = 10, query: str | None = None) -> list[dict]:
         subject = _decode_header(headers.get("Subject", "")) or "(no subject)"
         when = email.utils.parsedate_to_datetime(headers["Date"]) if headers.get("Date") else None
         items.append({
+            "id": ref["id"],          # so "read me that one" can fetch it
             "from": _sender_name(headers.get("From", "unknown")),
             "subject": subject,
             "date": when.astimezone().strftime("%d/%m %H:%M") if when else "",
@@ -356,6 +358,75 @@ def gmail_unread(max_results: int = 10, query: str | None = None) -> list[dict]:
             "topic_hint": subject,
         })
     return items
+
+
+def _b64url(data: str) -> str:
+    padding = "=" * (-len(data) % 4)
+    try:
+        return base64.urlsafe_b64decode(data + padding).decode("utf-8", errors="replace")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _gmail_body(payload: dict) -> str:
+    """
+    The readable text of a message.
+
+    Gmail nests bodies in a MIME tree - multipart/alternative holding a
+    text/plain and a text/html, sometimes wrapped again for attachments -
+    so this walks it and prefers plain text. HTML is only used when there
+    is no plain part, with its tags stripped; nothing in it is rendered.
+    """
+    plain, html = [], []
+
+    def walk(part):
+        mime = part.get("mimeType", "")
+        data = (part.get("body") or {}).get("data")
+        if data:
+            if mime == "text/plain":
+                plain.append(_b64url(data))
+            elif mime == "text/html":
+                html.append(_b64url(data))
+        for sub in part.get("parts") or []:
+            walk(sub)
+
+    walk(payload)
+    if plain:
+        return "\n".join(plain).strip()
+    if html:
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", "\n".join(html),
+                      flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<br\s*/?>|</p>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = text.replace("&nbsp;", " ").replace("&amp;", "&")
+        text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+    return ""
+
+
+GMAIL_BODY_CHARS = 6000
+
+
+def gmail_message(message_id: str) -> dict:
+    """One message, with its body. Raises IntegrationError."""
+    token = _google_access_token()
+    msg = _google_get(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}?format=full",
+        token,
+    )
+    payload = msg.get("payload", {}) or {}
+    headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
+    when = email.utils.parsedate_to_datetime(headers["Date"]) if headers.get("Date") else None
+    body = _gmail_body(payload)
+    truncated = len(body) > GMAIL_BODY_CHARS
+    return {
+        "id": message_id,
+        "from": _sender_name(headers.get("From", "unknown")),
+        "to": _decode_header(headers.get("To", "")),
+        "subject": _decode_header(headers.get("Subject", "")) or "(no subject)",
+        "date": when.astimezone().strftime("%d/%m/%Y %H:%M") if when else "",
+        "body": body[:GMAIL_BODY_CHARS] + ("\n[...truncated]" if truncated else ""),
+    }
 
 
 # ---------------------------------------------------------------- Calendar
